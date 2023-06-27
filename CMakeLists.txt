@@ -1,5 +1,14 @@
 cmake_minimum_required(VERSION 3.12) # Don't bump this version for no reason
-project("llama.cpp" C CXX)
+# If CUDA toolkit is not found using msvc compiler switch to Community Edition (same compiler, just other kit..)
+project("ggllm.cpp" C CXX)
+add_definitions(-DGGML_PERF=1) # use "--debug-timings 1-3" to enable timing output
+
+if(WIN32)
+    include_directories("C:/program files/NVIDIA GPU Computing Toolkit/CUDA/v12.0/include")
+    include_directories("C:/program files/NVIDIA GPU Computing Toolkit/CUDA/v12.0/lib/x64")
+else()
+    include_directories("/usr/local/cuda/include")
+endif()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -20,7 +29,7 @@ else()
 endif()
 
 if (EMSCRIPTEN)
-    set(BUILD_SHARED_LIBS_DEFAULT OFF)
+    set(BUILD_SHARED_LIBS_DEFAULT OFF) 
 
     option(LLAMA_WASM_SINGLE_FILE "llama: embed WASM inside the generated llama.js" ON)
 else()
@@ -67,7 +76,7 @@ endif()
 option(LLAMA_ACCELERATE                      "llama: enable Accelerate framework"               ON)
 option(LLAMA_BLAS                            "llama: use BLAS"                                  OFF)
 set(LLAMA_BLAS_VENDOR "Generic" CACHE STRING "llama: BLAS library vendor")
-option(LLAMA_CUBLAS                          "llama: use cuBLAS"                                OFF)
+option(LLAMA_CUBLAS                          "llama: use cuBLAS"                                ON)
 set(LLAMA_CUDA_DMMV_X      "32" CACHE STRING "llama: x stride for dmmv CUDA kernels")
 set(LLAMA_CUDA_DMMV_Y       "1" CACHE STRING "llama: y block size for dmmv CUDA kernels")
 option(LLAMA_CUDA_DMMV_F16                   "llama: use 16 bit floats for dmmv CUDA kernels"   OFF)
@@ -235,13 +244,14 @@ if (LLAMA_K_QUANTS)
 endif()
 
 if (LLAMA_CUBLAS)
-    cmake_minimum_required(VERSION 3.17)
+    cmake_minimum_required(VERSION 3.17) 
 
     find_package(CUDAToolkit)
     if (CUDAToolkit_FOUND)
         message(STATUS "cuBLAS found")
 
         enable_language(CUDA)
+        message(STATUS "CUDA found, version: ${CUDAToolkit_VERSION}")
 
         set(GGML_SOURCES_CUDA ggml-cuda.cu ggml-cuda.h)
 
@@ -498,12 +508,44 @@ target_link_libraries(llama PRIVATE
     ${LLAMA_EXTRA_LIBS}
     )
 
+# falcon
+add_library(libfalcon
+    libfalcon.cpp
+    libfalcon.h
+    llama-util.h
+    )
+target_include_directories(libfalcon PUBLIC .)
+target_compile_features(libfalcon PUBLIC cxx_std_11) # don't bump
+target_link_libraries(libfalcon PRIVATE
+    ggml
+    ${LLAMA_EXTRA_LIBS}
+    )
+#
+
 if (BUILD_SHARED_LIBS)
     set_target_properties(llama PROPERTIES POSITION_INDEPENDENT_CODE ON)
     target_compile_definitions(llama PRIVATE LLAMA_SHARED LLAMA_BUILD)
     if (LLAMA_METAL)
         set_target_properties(llama PROPERTIES RESOURCE "${CMAKE_CURRENT_SOURCE_DIR}/ggml-metal.metal")
     endif()
+
+    # falcon
+    set_target_properties(libfalcon PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_compile_definitions(libfalcon PRIVATE LLAMA_SHARED LLAMA_BUILD)
+    if (LLAMA_METAL)
+        set_target_properties(libfalcon PROPERTIES RESOURCE "${CMAKE_CURRENT_SOURCE_DIR}/ggml-metal.metal")
+    endif()
+    #
+endif()
+
+if (GGML_SOURCES_CUDA)
+    message(STATUS "GGML CUDA sources found, configuring CUDA architecture")
+    set_property(TARGET ggml  PROPERTY CUDA_ARCHITECTURES OFF)
+    set_property(TARGET ggml  PROPERTY CUDA_SELECT_NVCC_ARCH_FLAGS "Auto")
+    set_property(TARGET llama PROPERTY CUDA_ARCHITECTURES OFF)
+    # falcon
+    set_property(TARGET libfalcon  PROPERTY CUDA_ARCHITECTURES OFF)
+
 endif()
 
 
